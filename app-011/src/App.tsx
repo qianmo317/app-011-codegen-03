@@ -4,6 +4,7 @@ import PlanEditor from './pages/PlanEditor'
 import WallEditor from './pages/WallEditor'
 import BOM from './pages/BOM'
 import PrintView from './pages/PrintView'
+import SiteLogs from './pages/SiteLogs'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/plan/:id" element={<PlanEditor />} />
           <Route path="/plan/:id/walls" element={<WallEditor />} />
           <Route path="/plan/:id/bom" element={<BOM />} />
+          <Route path="/plan/:id/logs" element={<SiteLogs />} />
           <Route path="/plan/:id/print" element={<PrintView />} />
         </Routes>
       </main>
