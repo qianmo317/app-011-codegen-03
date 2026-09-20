@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Plan, Room, Opening, Outlet, MatSpec } from '../types';
+import type { Plan, Room, Opening, Outlet, MatSpec, WorkLog, Stage, WorkCategory } from '../types';
 import { DEFAULT_MATS } from '../utils/materialCalc';
 
 interface AppState {
@@ -19,6 +19,16 @@ interface AppState {
   addOutlet: (planId: string, outlet: Outlet) => void;
   deleteOutlet: (planId: string, outletId: string) => void;
   updateMaterials: (planId: string, mats: MatSpec[]) => void;
+  // 施工日志
+  addLog: (planId: string, draft: Omit<WorkLog, 'id' | 'segment' | 'createdAt' | 'updatedAt'>) => string;
+  updateLog: (planId: string, logId: string, patch: Partial<Omit<WorkLog, 'id' | 'date' | 'segment' | 'createdAt'>>) => void;
+  deleteLog: (planId: string, logId: string) => void;
+  addCorrection: (planId: string, logId: string, text: string) => void;
+  claimWorkItem: (planId: string, logId: string, itemId: string, category: WorkCategory | null) => void;
+  // 施工阶段
+  addStage: (planId: string, stage: Omit<Stage, 'id'>) => string;
+  updateStage: (planId: string, stageId: string, patch: Partial<Omit<Stage, 'id'>>) => void;
+  deleteStage: (planId: string, stageId: string) => void;
 }
 
 function genId() {
@@ -124,5 +134,137 @@ export const useStore = create<AppState>((set, get) => ({
   updateMaterials: (planId, mats) =>
     set((state) => ({
       plans: state.plans.map((p) => (p.id === planId ? { ...p, materials: mats } : p)),
+    })),
+
+  addLog: (planId, draft) => {
+    const id = genId();
+    let newId = id;
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        // 同一天同一房间的段号顺延
+        const segment =
+          (p.workLogs ?? []).filter(
+            (l) => l.date === draft.date && l.roomId === draft.roomId
+          ).length + 1;
+        const now = Date.now();
+        const log: WorkLog = { ...draft, id, segment, createdAt: now, updatedAt: now };
+        return { ...p, workLogs: [...(p.workLogs ?? []), log] };
+      }),
+    }));
+    return newId;
+  },
+
+  updateLog: (planId, logId, patch) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        return {
+          ...p,
+          workLogs: (p.workLogs ?? []).map((l) => {
+            if (l.id !== logId) return l;
+            // 换到别的房间后，按「新房间 + 原日期」重新排段号；日期永远不许改
+            const nextRoomId = patch.roomId ?? l.roomId;
+            let segment = l.segment;
+            if (patch.roomId && patch.roomId !== l.roomId) {
+              segment =
+                (p.workLogs ?? []).filter(
+                  (x) =>
+                    x.id !== l.id && x.date === l.date && x.roomId === nextRoomId
+                ).length + 1;
+            }
+            return {
+              ...l,
+              ...{ ...patch, date: l.date },
+              segment,
+              updatedAt: Date.now(),
+            };
+          }),
+        };
+      }),
+    })),
+
+  deleteLog: (planId, logId) =>
+    set((state) => ({
+      plans: state.plans.map((p) =>
+        p.id === planId
+          ? { ...p, workLogs: (p.workLogs ?? []).filter((l) => l.id !== logId) }
+          : p
+      ),
+    })),
+
+  addCorrection: (planId, logId, text) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        return {
+          ...p,
+          workLogs: (p.workLogs ?? []).map((l) =>
+            l.id === logId
+              ? {
+                  ...l,
+                  corrections: [
+                    ...l.corrections,
+                    { id: genId(), text: text.trim(), createdAt: Date.now() },
+                  ],
+                }
+              : l
+          ),
+        };
+      }),
+    })),
+
+  claimWorkItem: (planId, logId, itemId, category) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        return {
+          ...p,
+          workLogs: (p.workLogs ?? []).map((l) =>
+            l.id === logId
+              ? {
+                  ...l,
+                  items: l.items.map((it) =>
+                    it.id === itemId ? { ...it, category } : it
+                  ),
+                  updatedAt: Date.now(),
+                }
+              : l
+          ),
+        };
+      }),
+    })),
+
+  addStage: (planId, stage) => {
+    const id = genId();
+    set((state) => ({
+      plans: state.plans.map((p) =>
+        p.id === planId ? { ...p, stages: [...(p.stages ?? []), { ...stage, id }] } : p
+      ),
+    }));
+    return id;
+  },
+
+  updateStage: (planId, stageId, patch) =>
+    set((state) => ({
+      plans: state.plans.map((p) =>
+        p.id === planId
+          ? {
+              ...p,
+              stages: (p.stages ?? []).map((s) =>
+                s.id === stageId ? { ...s, ...patch } : s
+              ),
+            }
+          : p
+      ),
+    })),
+
+  deleteStage: (planId, stageId) =>
+    set((state) => ({
+      plans: state.plans.map((p) =>
+        p.id === planId
+          ? { ...p, stages: (p.stages ?? []).filter((s) => s.id !== stageId) }
+          : p
+      ),
     })),
 }));
